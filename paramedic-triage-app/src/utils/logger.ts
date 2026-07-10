@@ -1,19 +1,13 @@
 export class Logger {
-  static info(message: string) {
-    console.log(
-      `[INFO] ${message}`
-    );
+  static info(message: string, data?: unknown) {
+    console.log(`[INFO] ${message}`, data ?? '');
   }
 
-  static warn(message: string) {
-    console.warn(
-      `[WARN] ${message}`
-    );
+  static warn(message: string, data?: unknown) {
+    console.warn(`[WARN] ${message}`, data ?? '');
   }
 
-  static error(message: string) {
-    console.error(
-      `[ERROR] ${message}`
-    );
+  static error(message: string, error?: unknown) {
+    console.error(`[ERROR] ${message}`, error ?? '');
   }
 }
