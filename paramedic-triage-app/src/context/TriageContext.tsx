@@ -3,7 +3,12 @@ import React, {
   useContext,
   useEffect,
   useReducer,
+  ReactNode,
 } from 'react';
+
+import { TriageRecord } from '../models/TriageRecord';
+import { triageRepository } from '../repositories';
+import { generateId } from '../utils';
 
 import {
   Action,
@@ -13,31 +18,49 @@ import {
 
 import { triageReducer } from './reducer';
 
-import { triageRepository } from '../repositories';
+export interface CreateTriageRecordInput {
+  patientName: string;
+  conditionDescription: string;
+  priority: 1 | 2 | 3 | 4 | 5;
+  status: 'Pending' | 'In-Transit';
+}
 
-interface ContextType {
+interface TriageContextType {
   state: TriageState;
 
-  dispatch: React.Dispatch<Action>;
-
   refreshRecords: () => Promise<void>;
+
+  createTriageRecord: (
+    data: CreateTriageRecordInput
+  ) => Promise<TriageRecord>;
+
+  deleteRecord: (
+    id: string
+  ) => Promise<void>;
+
+  markRecordSynced: (
+    id: string
+  ) => Promise<void>;
 }
 
 const TriageContext =
-  createContext<ContextType | undefined>(
+  createContext<TriageContextType | undefined>(
     undefined
   );
 
 export function TriageProvider({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const [state, dispatch] = useReducer(
     triageReducer,
     initialState
   );
 
+  /**
+   * Load all records from SQLite
+   */
   async function refreshRecords() {
     dispatch({
       type: 'SET_LOADING',
@@ -60,7 +83,14 @@ export function TriageProvider({
         type: 'SET_PENDING',
         payload: pending.length,
       });
-    } catch {
+
+      dispatch({
+        type: 'SET_ERROR',
+        payload: null,
+      });
+    } catch (error) {
+      console.error(error);
+
       dispatch({
         type: 'SET_ERROR',
         payload: 'Unable to load records.',
@@ -73,6 +103,83 @@ export function TriageProvider({
     }
   }
 
+  /**
+   * Create a new triage record
+   */
+  async function createTriageRecord(
+    data: CreateTriageRecordInput
+  ): Promise<TriageRecord> {
+    const now = new Date().toISOString();
+
+    const record: TriageRecord = {
+      id: generateId(),
+
+      patientName: data.patientName,
+
+      conditionDescription:
+        data.conditionDescription,
+
+      priority: data.priority,
+
+      status: data.status,
+
+      isSynced: false,
+
+      createdAt: now,
+
+      updatedAt: now,
+    };
+
+    await triageRepository.create(record);
+
+    dispatch({
+      type: 'ADD_RECORD',
+      payload: record,
+    });
+
+    dispatch({
+      type: 'SET_PENDING',
+      payload: state.pendingCount + 1,
+    });
+
+    return record;
+  }
+
+  /**
+   * Delete a record
+   */
+  async function deleteRecord(
+    id: string
+  ) {
+    await triageRepository.delete(id);
+
+    dispatch({
+      type: 'DELETE_RECORD',
+      payload: id,
+    });
+
+    await refreshRecords();
+  }
+
+  /**
+   * Mark record synced
+   */
+  async function markRecordSynced(
+    id: string
+  ) {
+    await triageRepository.markAsSynced(id);
+
+    dispatch({
+      type: 'MARK_SYNCED',
+      payload: id,
+    });
+
+    dispatch({
+      type: 'SET_LAST_SYNC',
+      payload: new Date().toISOString(),
+    });
+  }
+
   useEffect(() => {
     refreshRecords();
   }, []);
@@ -81,8 +188,14 @@ export function TriageProvider({
     <TriageContext.Provider
       value={{
         state,
-        dispatch,
+
         refreshRecords,
+
+        createTriageRecord,
+
+        deleteRecord,
+
+        markRecordSynced,
       }}
     >
       {children}
@@ -91,13 +204,12 @@ export function TriageProvider({
 }
 
 export function useTriage() {
-  const context = useContext(
-    TriageContext
-  );
+  const context =
+    useContext(TriageContext);
 
   if (!context) {
     throw new Error(
-      'useTriage must be used within TriageProvider'
+      'useTriage must be used within TriageProvider.'
     );
   }
 
